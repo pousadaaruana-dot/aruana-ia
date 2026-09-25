@@ -1,32 +1,59 @@
-# Aruana IA — piloto de testes
+# Aru — piloto de atendimento da Pousada Aruanã
 
-Exclusivo no numero Meta +1 (555) 142-1547, ID 1320569784479924. Outros numeros sao ignorados. Nao migrar o WhatsApp oficial nesta etapa.
+Continuação do projeto existente. Usa a API oficial WhatsApp Cloud da Meta, exclusivamente
+no número de teste +1 (555) 142-1547, phone ID 1320569784479924.
 
-## Configuracao no Render
+## O que esta versão faz
+- Recebe webhooks assinados e registra mensagens em SQLite antes de responder ao webhook.
+- Modo padrão gratuito: coleta guiada, uma resposta por vez, sem API de IA. Datas DD/MM/AAAA, quantidades numéricas, idades separadas por vírgula e SIM/NÃO para pets. Respostas ambíguas repetem a pergunta; /reiniciar corrige os dados.
+- Valida os dados e usa respostas controladas: não inventa preços, disponibilidade nem políticas.
+- Omnibees 18272 é a referência da consulta humana. Não existe consulta automática de inventário nesta versão.
+- Encaminha pagamentos, reclamações, exceções, pedidos humanos, disponibilidade e falhas da IA para a fila.
+- Painel /painel com até três contas independentes, ASSUMIR, resposta humana e DEVOLVER PARA ARU.
+- O proprietário da conversa controla o atendimento. Outros atendentes não podem responder ou devolver.
+- A Aru fica pausada e descarta respostas geradas durante uma tomada de controle.
+- Recibos Meta distinguem aceitação, envio, entrega e leitura. Envio incerto não é repetido automaticamente.
 
-Manter gunicorn app:app com um worker, sem --preload. Configurar em Environment, nunca no repositorio:
+## Configuração no Render
+Manter `gunicorn app:app`. `gunicorn.conf.py` limita a um processo, com quatro threads, sem preload.
+Não aumentar workers ou réplicas: os bloqueios de handoff são locais ao processo.
 
-- OPENAI_API_KEY: chave da OpenAI com acesso a API e saldo/limite disponivel.
-- WHATSAPP_ACCESS_TOKEN: token autorizado para a conta WhatsApp de teste.
-- META_APP_SECRET: segredo do app Aruana na Meta, para validar assinaturas.
-- TEST_RECIPIENTS: telefones pessoais autorizados no painel da Meta, com pais e DDD, somente digitos, separados por virgulas.
-- OPENAI_MODEL: opcional; padrao gpt-4.1-mini.
-- VERIFY_TOKEN: mesmo token de verificacao do callback da Meta.
+Configurar somente em Environment, nunca no código:
+- ARU_ENGINE: guided é o padrão. Somente openai ativa a API paga opcional; nesse caso exige OPENAI_API_KEY.
+- WHATSAPP_ACCESS_TOKEN: token autorizado para a conta de teste.
+- META_APP_SECRET: valida a assinatura de cada webhook.
+- TEST_RECIPIENTS: números autorizados, dígitos com país e DDD, separados por vírgula.
+- VERIFY_TOKEN: segredo aleatório também configurado no callback da Meta. O padrão público antigo foi removido.
+- ARU_OPERATORS: objeto JSON com até três nomes e hashes Werkzeug scrypt/pbkdf2 de suas senhas.
+- ARU_SESSION_SECRET: segredo aleatório para sessões. Se ausente, sessões expiram após reinício.
+- ARU_DB_PATH: caminho SQLite em volume persistente, por exemplo /var/data/aru.sqlite3.
+- OPENAI_MODEL: opcional; mantém gpt-4.1-mini.
 
-Callback /webhook, campo messages assinado. /health indica configuracoes ausentes; configured=true nao valida tokens ou saldo. Credenciais ausentes desativam o processamento.
+`python configure_operators.py` permite cadastrar senhas de forma privada e produz os valores
+para Environment. Não publicar sua saída. ARU_LOCAL_HTTP=1 serve apenas para teste local;
+não configurar no Render. Contas não configuradas impedem acesso ao painel.
 
-## Testar
+Webhook: https://aruana-ia.onrender.com/webhook. Assinar messages e verificar a inscrição
+do app Aruana 3124809067910374 na conta WhatsApp 2056312315031112.
 
-Enviar Oi do telefone pessoal autorizado para o numero de teste. Perguntar sobre hospedagem, informar datas e quantidade de hospedes. /reiniciar limpa o contexto. Conferir a resposta no telefone: test_reply_accepted_by_whatsapp nos logs significa aceite pela Meta, nao entrega final. Eventos sinteticos do painel apenas testam o webhook; IDs ficticios e status nao geram respostas.
+## Segurança e armazenamento
+- Cookies HttpOnly/SameSite/Secure, CSRF, limite de login e histórico sem HTML executável.
+- Logs não incluem mensagens, tokens nem respostas brutas de provedores; apenas códigos de diagnóstico.
+- Erro openai_http_429_insufficient_quota indica cota/saldo indisponível na API; o serviço registra fila humana.
+- /health apenas verifica presença de configurações, não comprova credenciais ou entrega.
+- SQLite sobrevive a reinícios de processo quando o arquivo permanece. O disco gratuito do Render é efêmero:
+  deploy/recriação pode apagar conversas, fila e controle humano. Usar volume persistente antes de produção.
+- Testadores autorizados somente; texto somente. Janela de resposta de 24 horas; limite de 10 entradas/minuto.
+- A equipe deve manter o painel aberto para acompanhar a fila. Não há alertas externos para os atendentes.
+- Histórico é limitado a 20 mensagens para a IA e 100 no painel. Não há exclusão automática de dados nesta versão.
+- Se o processo cair durante um envio, a mensagem fica incerta para verificação humana.
 
-## Limites
+## Validação
+`python -m unittest test_app -v` usa provedores simulados e não envia mensagens reais.
+Foi validado também o painel local: login, assumir, envio humano e devolução.
+Teste real exige token Meta válido e acessos da equipe configurados. O modo guided não exige OpenAI nem créditos.
+Não confundir sucesso de teste isolado, aceite de envio e confirmação de entrega no telefone.
 
-Apenas texto. Sem consulta a precos, disponibilidade, reservas, Hospedin, Omnibees ou transferencia humana. A assistente deve explicar as limitacoes sem inventar dados.
+guided.py implementa a coleta gratuita. ui.py contém os templates Jinja e assets servidos por rotas explícitas.
+As integrações principais permanecem em app.py, booking.py, store.py e panel.py.
 
-Fila, deduplicacao e historico ficam em memoria de um processo e se perdem com reinicios. Historico expira em uma hora e usa ate 12 mensagens anteriores. Render gratuito pode suspender o servico. Limite de dez mensagens por minuto por testador. Eventos com mais de cinco minutos sao ignorados. Falhas de API ficam nos logs sem conteudo da conversa; nao ha repeticao automatica de envios incertos. Corrigir e enviar uma nova mensagem.
-
-Antes de uso oficial: armazenamento duravel, dados confirmados da pousada, integracoes e avaliacao humana.
-
-## Validacao
-
-11 testes locais com APIs simuladas passaram: assinatura e verificacao do webhook, bloqueio de numero oficial e remetentes nao autorizados, duplicatas, eventos antigos e status, credenciais ausentes, fluxo IA/WhatsApp, falhas de envio, reinicio, midia e limite de frequencia. Conversa real com IA pendente das credenciais.
