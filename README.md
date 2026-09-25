@@ -5,7 +5,7 @@ no número de teste +1 (555) 142-1547, phone ID 1320569784479924.
 
 ## O que esta versão faz
 - Recebe webhooks assinados e registra mensagens em SQLite antes de responder ao webhook.
-- Extrai datas, adultos, crianças/idades e pets usando a API OpenAI Responses com esquema JSON.
+- Modo padrão gratuito: coleta guiada, uma resposta por vez, sem API de IA. Datas DD/MM/AAAA, quantidades numéricas, idades separadas por vírgula e SIM/NÃO para pets. Respostas ambíguas repetem a pergunta; /reiniciar corrige os dados.
 - Valida os dados e usa respostas controladas: não inventa preços, disponibilidade nem políticas.
 - Omnibees 18272 é a referência da consulta humana. Não existe consulta automática de inventário nesta versão.
 - Encaminha pagamentos, reclamações, exceções, pedidos humanos, disponibilidade e falhas da IA para a fila.
@@ -19,7 +19,7 @@ Manter `gunicorn app:app`. `gunicorn.conf.py` limita a um processo, com quatro t
 Não aumentar workers ou réplicas: os bloqueios de handoff são locais ao processo.
 
 Configurar somente em Environment, nunca no código:
-- OPENAI_API_KEY: chave com acesso e saldo/limite para a API.
+- ARU_ENGINE: guided é o padrão. Somente openai ativa a API paga opcional; nesse caso exige OPENAI_API_KEY.
 - WHATSAPP_ACCESS_TOKEN: token autorizado para a conta de teste.
 - META_APP_SECRET: valida a assinatura de cada webhook.
 - TEST_RECIPIENTS: números autorizados, dígitos com país e DDD, separados por vírgula.
@@ -51,8 +51,9 @@ do app Aruana 3124809067910374 na conta WhatsApp 2056312315031112.
 ## Validação
 `python -m unittest test_app -v` usa provedores simulados e não envia mensagens reais.
 Foi validado também o painel local: login, assumir, envio humano e devolução.
-Teste real continua exigindo API OpenAI disponível, token Meta válido e acessos da equipe configurados.
+Teste real exige token Meta válido e acessos da equipe configurados. O modo guided não exige OpenAI nem créditos.
 Não confundir sucesso de teste isolado, aceite de envio e confirmação de entrega no telefone.
 
-Arquivos ui.py contém os templates Jinja e assets servidos por rotas explícitas.
+guided.py implementa a coleta gratuita. ui.py contém os templates Jinja e assets servidos por rotas explícitas.
 As integrações principais permanecem em app.py, booking.py, store.py e panel.py.
+

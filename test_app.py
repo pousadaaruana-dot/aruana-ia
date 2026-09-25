@@ -30,6 +30,7 @@ class AruTests(unittest.TestCase):
             'ARU_DB_PATH': self.temp.name + '/test.sqlite3',
             'META_APP_SECRET': 'test-secret', 'WHATSAPP_ACCESS_TOKEN': 'fake-token',
             'OPENAI_API_KEY': 'fake-key', 'VERIFY_TOKEN': 'test-verify',
+            'ARU_ENGINE': 'openai',
             'TEST_RECIPIENTS': SENDER,
             'ARU_OPERATORS': json.dumps({'one': HASH, 'two': HASH, 'three': HASH})})
         self.env.start()

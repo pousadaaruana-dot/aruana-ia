@@ -14,6 +14,7 @@ from flask import Flask, Response, jsonify, request
 from jinja2 import DictLoader
 from ui import TEMPLATES, ASSETS
 import booking
+import guided
 import panel
 import store
 
@@ -22,7 +23,7 @@ app.jinja_loader = DictLoader(TEMPLATES)
 app.config['MAX_CONTENT_LENGTH'] = 256 * 1024
 logging.basicConfig(level=logging.INFO)
 TEST_PHONE_ID = '1320569784479924'
-REQUIRED = ('OPENAI_API_KEY', 'WHATSAPP_ACCESS_TOKEN', 'META_APP_SECRET', 'TEST_RECIPIENTS', 'VERIFY_TOKEN')
+REQUIRED = ('WHATSAPP_ACCESS_TOKEN', 'META_APP_SECRET', 'TEST_RECIPIENTS', 'VERIFY_TOKEN')
 locks = {}
 lock_guard = threading.Lock()
 worker = None
@@ -37,7 +38,16 @@ def sender_lock(sender):
 
 
 def missing_config():
-    return [name for name in REQUIRED if not os.getenv(name, '').strip()]
+    required = REQUIRED + (('OPENAI_API_KEY',) if engine() == 'openai' else ())
+    return [name for name in required if not os.getenv(name, '').strip()]
+
+
+def engine():
+    return 'openai' if os.getenv('ARU_ENGINE', '').strip().lower() == 'openai' else 'guided'
+
+
+def next_question(facts, first=False):
+    return (booking.next_question if engine() == 'openai' else guided.question)(facts, first)
 
 
 def allowed_numbers():
@@ -125,7 +135,7 @@ def process_message(job):
             with store.db() as con:
                 con.execute("UPDATE conversations SET facts='{}',reason=NULL,epoch=epoch+1 WHERE sender=?", (sender,))
                 store.audit(con, sender, 'guest', 'reset')
-            send(sender, booking.next_question({}, first=True))
+            send(sender, next_question({}, first=True))
             return
         urgent = booking.urgent_reason(text)
         if urgent:
@@ -141,8 +151,11 @@ def process_message(job):
                    for r in reversed(rows)]
     # ASSUMIR remains available while the model is running.
     try:
-        facts = booking.extract(post_json, os.environ['OPENAI_API_KEY'],
-                                os.getenv('OPENAI_MODEL', 'gpt-4.1-mini'), context, convo['facts'])
+        if engine() == 'guided':
+            facts = guided.extract(text, convo['facts'])
+        else:
+            facts = booking.extract(post_json, os.environ['OPENAI_API_KEY'],
+                                    os.getenv('OPENAI_MODEL', 'gpt-4.1-mini'), context, convo['facts'])
     except Exception as exc:
         reason = safe_error(exc)
         app.logger.error('aru_extraction_failed: %s', reason)
@@ -163,7 +176,7 @@ def process_message(job):
         if reason != 'none':
             reply = queue_human(sender, reason)
         else:
-            reply = booking.next_question(facts, first=len(context) == 1)
+            reply = next_question(facts, first=len(context) == 1)
             if reply is None:
                 booking.availability(facts)
                 reply = ('Já reuni os dados da estadia. A disponibilidade, os valores e as condições '
@@ -272,7 +285,7 @@ def home():
 def health():
     missing = missing_config()
     return jsonify(mode='test_only', configured=not missing and bool(allowed_numbers()),
-                   missing=missing, version='aru-handoff-2', operators_configured=len(panel.operators()),
+                   missing=missing, version='aru-guided-3', engine=engine(), operators_configured=len(panel.operators()),
                    availability='human_confirmation_omnibees_18272',
                    storage='sqlite_requires_persistent_volume'), 200
 
