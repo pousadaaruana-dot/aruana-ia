@@ -12,13 +12,14 @@ _db_lock = threading.RLock()
 
 @contextmanager
 def db():
-    path = os.getenv('ARU_DB_PATH', 'data/aru.sqlite3')
+    path = os.getenv('ARU_DB_PATH', 'data/aru-pilot-v2.sqlite3')
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     # Serialize short transactions across inbox, worker and panel threads.
     # Explicit commit/rollback also releases empty BEGIN IMMEDIATE transactions.
     with _db_lock:
-        con = sqlite3.connect(path, timeout=10)
+        con = sqlite3.connect(path, timeout=10, isolation_level=None)
         con.row_factory = sqlite3.Row
+        con.execute('PRAGMA busy_timeout=10000')
         try:
             yield con
             con.commit()
@@ -32,7 +33,7 @@ def db():
 def init():
     with db() as con:
         con.executescript('''
-        PRAGMA journal_mode=WAL;
+        PRAGMA journal_mode=DELETE;
         CREATE TABLE IF NOT EXISTS conversations (
             sender TEXT PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'aru',
             owner TEXT, epoch INTEGER NOT NULL DEFAULT 0,
@@ -95,3 +96,4 @@ def history(sender, before=None):
 def audit(con, sender, actor, action):
     con.execute('INSERT INTO audit(sender,actor,action,created) VALUES (?,?,?,?)',
                 (sender, actor, action, time.time()))
+
