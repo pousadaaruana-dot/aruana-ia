@@ -1,10 +1,11 @@
 import os
 import unittest
+import threading
 from unittest.mock import patch
+from test_app import AruTests, SENDER
 import guided
 import store
 import app as aru
-from test_app import AruTests, SENDER
 
 
 class ParsingTests(unittest.TestCase):
@@ -39,6 +40,35 @@ class ParsingTests(unittest.TestCase):
 
 
 class GuidedFlowTests(AruTests):
+    def test_background_worker_releases_idle_database(self):
+        idle = threading.Event()
+        resume = threading.Event()
+        delivered = threading.Event()
+        stop = threading.Event()
+        def wait(_):
+            idle.set()
+            resume.wait(3)
+            resume.clear()
+            if stop.is_set():
+                raise SystemExit
+        def send(*args, **kwargs):
+            delivered.set()
+        with patch.dict(os.environ, {'ARU_ENGINE': 'guided'}), \
+                patch.object(aru.wake, 'wait', side_effect=wait), \
+                patch.object(aru, 'send', side_effect=send):
+            thread = threading.Thread(target=aru.run_worker, daemon=True)
+            thread.start()
+            try:
+                self.assertTrue(idle.wait(2))
+                self.job('Oi', 'wamid.background')
+                resume.set()
+                self.assertTrue(delivered.wait(3))
+            finally:
+                stop.set()
+                resume.set()
+                thread.join(4)
+            self.assertFalse(thread.is_alive())
+
     # Reuse only the fixture; inherited OpenAI tests remain covered by test_app.
     def test_guided_flow_never_calls_ai_and_preserves_handoff(self):
         with patch.dict(os.environ, {'ARU_ENGINE': 'guided', 'OPENAI_API_KEY': ''}):

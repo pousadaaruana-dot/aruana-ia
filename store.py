@@ -3,21 +3,30 @@ import json
 import os
 import sqlite3
 import time
+import threading
 from contextlib import contextmanager
 from pathlib import Path
+
+_db_lock = threading.RLock()
 
 
 @contextmanager
 def db():
     path = os.getenv('ARU_DB_PATH', 'data/aru.sqlite3')
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(path, timeout=30)
-    con.row_factory = sqlite3.Row
-    try:
-        with con:
+    # Serialize short transactions across inbox, worker and panel threads.
+    # Explicit commit/rollback also releases empty BEGIN IMMEDIATE transactions.
+    with _db_lock:
+        con = sqlite3.connect(path, timeout=10)
+        con.row_factory = sqlite3.Row
+        try:
             yield con
-    finally:
-        con.close()
+            con.commit()
+        except BaseException:
+            con.rollback()
+            raise
+        finally:
+            con.close()
 
 
 def init():
